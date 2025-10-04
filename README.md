@@ -1,7 +1,7 @@
 ## Build
 1. Try to build it once to download crates
 2. Make sure you have cmake
-3. Go to `%userprofile%/registry/src/index.crates.io-1949cf8c6b5b557f/audiopus_sys-0.2.2/opus` and replace `CMakeLists.txt` with the one in this repo. The existing one is made for an ancient version of cmake.
+3. Go to `%userprofile%\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\audiopus_sys-0.2.2\opus` and replace `CMakeLists.txt` with the one in this repo. The existing one is made for an ancient version of cmake.
 4. Build like any other rust app.
 
 ## Usage
