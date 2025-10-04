@@ -1,0 +1,8 @@
+services:
+  david-discord-bot:
+    build:
+      dockerfile: ./Dockerfile
+    environment:
+      DISCORD_TOKEN: example
+      SOTD_CHANNEL_ID: 23232345345
+      SONG_REQUEST_CHANNEL_ID: 34690347859827
