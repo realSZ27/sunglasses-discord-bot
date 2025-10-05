@@ -6,6 +6,7 @@ use serenity::async_trait;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 mod modules;
+
 use crate::modules::sotd::*;
 struct Handler;
 
@@ -13,6 +14,8 @@ struct Handler;
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         tracing::info!("{} is connected!", ready.user.name);
+
+        print_new_links(&ctx).await;
 
         // run once when the bot starts up
         let should = should_run_sotd(&ctx).await;

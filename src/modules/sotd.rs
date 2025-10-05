@@ -20,7 +20,7 @@ pub async fn post_song_of_the_day(ctx: &Context) {
     let song_request_search = get_all_messages(&http, song_request_channel_id).await.unwrap();
     let sotd_search = get_all_messages(&http, song_of_the_day_channel_id).await.unwrap();
 
-    if let Some(next_song) = find_next_song(&song_request_search, &sotd_search) {
+    if let Some(next_song) = find_next_song(&song_request_search, &sotd_search).await {
         tracing::info!("Next song: {} from {}", next_song.content, next_song.author.name);
         song_of_the_day_channel_id.say(&ctx.http, format!("## SONG OF THE DAY {}\n{}", Local::now().format("%b %d, %Y"), next_song.content)).await.expect("TODO: panic message");
     } else {
@@ -80,7 +80,7 @@ pub async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::R
 }
 
 /// Finds the oldest song request not already in the SOTD channel.
-pub fn find_next_song(
+pub async fn find_next_song(
     requests: &[Message],
     sotd_messages: &[Message],
 ) -> Option<Message> {
@@ -88,10 +88,7 @@ pub fn find_next_song(
     let spotify_re = Regex::new(r"https?://open\.spotify\.com/[^\s?]+").unwrap();
 
     // Collect all SOTD links
-    let existing_links: HashSet<String> = sotd_messages
-        .iter()
-        .filter_map(|msg| spotify_re.find(&msg.content).map(|m| m.as_str().to_string()))
-        .collect();
+    let existing_links = collect_links(Vec::from(sotd_messages), &spotify_re);
 
     // Requests sorted oldest first
     let mut sorted = requests.to_vec();
@@ -107,4 +104,55 @@ pub fn find_next_song(
     }
 
     None
+}
+pub async fn print_new_links(ctx: &Context) {
+    let http = ctx.as_ref();
+
+    let song_request_channel_id = ChannelId::new(
+        env::var("SONG_REQUEST_CHANNEL_ID")
+            .expect("Missing SONG_REQUEST_CHANNEL_ID")
+            .parse()
+            .expect("SONG_REQUEST_CHANNEL_ID must be a u64"),
+    );
+
+    let song_of_the_day_channel_id = ChannelId::new(
+        env::var("SOTD_CHANNEL_ID")
+            .expect("Missing SOTD_CHANNEL_ID")
+            .parse()
+            .expect("SOTD_CHANNEL_ID must be a u64"),
+    );
+
+    // Fetch messages
+    let requests = get_all_messages(&http, song_request_channel_id).await.unwrap();
+    let sotd_messages = get_all_messages(&http, song_of_the_day_channel_id).await.unwrap();
+
+    // Regex for Spotify links
+    let spotify_re = Regex::new(r"https?://open\.spotify\.com/[^\s?]+").unwrap();
+
+    // Collect SOTD links
+    let existing_links = collect_links(sotd_messages, &spotify_re);
+
+    let all_links = env::var("ALL_LINKS").is_ok();
+
+    let mut count = 0;
+
+    for msg in requests {
+        for link_match in spotify_re.find_iter(&msg.content) {
+            let link = link_match.as_str();
+            if !existing_links.contains(link) {
+                count += 1;
+                if all_links { tracing::info!("Found new link: {}", link) }
+            }
+        }
+    }
+
+    tracing::info!("There are {} requests not in sotd", count);
+}
+
+fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<String> {
+    let existing_links: HashSet<String> = sotd_messages
+        .iter()
+        .filter_map(|msg| spotify_re.find(&msg.content).map(|m| m.as_str().to_string()))
+        .collect();
+    existing_links
 }
