@@ -1,9 +1,10 @@
-use serenity::all::{Ready};
+use serenity::all::{Ready, VoiceStateUpdateEvent};
 use serenity::prelude::*;
 use std::env;
 use chrono::Local;
 use serenity::async_trait;
 use tokio_cron_scheduler::{Job, JobScheduler};
+use crate::modules::gust_abdalla::check_voice_channel_occupancy;
 
 mod modules;
 use crate::modules::sotd::*;
@@ -41,6 +42,17 @@ impl EventHandler for Handler {
 
         tracing::info!("started cron job");
     }
+
+    async fn voice_state_update(&self, ctx: Context, voice_state: VoiceStateUpdateEvent) {
+        // Only proceed if this update happened in a guild channel
+        let (guild_id, channel_id) = match (voice_state.voice_state.guild_id, voice_state.voice_state.channel_id) {
+            (Some(gid), Some(cid)) => (gid, cid),
+            _ => return,
+        };
+
+        // Check if the bot should join or leave
+        check_voice_channel_occupancy(ctx, guild_id, channel_id).await;
+    }
 }
 
 #[tokio::main]
@@ -50,7 +62,8 @@ async fn main() {
     let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
     // Set gateway intents, which decides what events the bot will be notified about
     let intents = GatewayIntents::GUILD_MESSAGES
-        | GatewayIntents::MESSAGE_CONTENT;
+        | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::GUILD_VOICE_STATES;
 
     // Create a new instance of the Client, logging in as a bot.
     let mut client =
