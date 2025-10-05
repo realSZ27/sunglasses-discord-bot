@@ -1,4 +1,4 @@
-use serenity::all::{Ready, VoiceStateUpdateEvent};
+use serenity::all::{Ready, VoiceState, VoiceStateUpdateEvent};
 use serenity::prelude::*;
 use std::env;
 use chrono::Local;
@@ -43,15 +43,9 @@ impl EventHandler for Handler {
         tracing::info!("started cron job");
     }
 
-    async fn voice_state_update(&self, ctx: Context, voice_state: VoiceStateUpdateEvent) {
-        // Only proceed if this update happened in a guild channel
-        let (guild_id, channel_id) = match (voice_state.voice_state.guild_id, voice_state.voice_state.channel_id) {
-            (Some(gid), Some(cid)) => (gid, cid),
-            _ => return,
-        };
-
-        // Check if the bot should join or leave
-        check_voice_channel_occupancy(ctx, guild_id, channel_id).await;
+    async fn voice_state_update(&self, ctx: Context, _old_voice_state: Option<VoiceState>, voice_state: VoiceState) {
+        tracing::debug!("someones voice state updated");
+        let _ = check_voice_channel_occupancy(ctx.clone(), voice_state.guild_id.unwrap(), voice_state.channel_id.unwrap());
     }
 }
 
