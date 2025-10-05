@@ -37,7 +37,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cargo build --release --bin app
+RUN cargo build --release --bin david-discord-bot-rs
 
 # -------- Runtime stage --------
 FROM scratch
