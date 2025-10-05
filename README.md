@@ -15,9 +15,4 @@
 | SONG_REQUEST_CHANNEL_ID | The id of the channel you want the bot to look for song requests in.                         |
 | RUST_LOG                | Optional, set to DEBUG or TRACE if you need more verbose logs.                               |
 
-
-
-
-
-
-
+There is also a docker container in this repo. To run it, do a `git clone https://github.com/realSZ27/sunglasses-discord-bot.git` and modify/rename `docker-compose.example.yaml` to `compose.yaml`.
