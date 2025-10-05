@@ -1,17 +1,28 @@
+# -------- Build stage --------
 FROM alpine:3.14 as builder
 
-RUN apk add --no-cache curl opus-dev build-base
+# Install dependencies
+RUN apk add --no-cache curl opus-dev build-base git
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+# build deps
 WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release
+RUN rm -rf src
+
+# build app
 COPY . .
 
 RUN cargo build --release
 
-# Runtime image
+# -------- Runtime stage --------
 FROM alpine:3.14
 
 WORKDIR /app
