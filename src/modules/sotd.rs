@@ -11,6 +11,7 @@ pub struct Config {
     pub song_of_the_day_channel_id: ChannelId,
     pub all_links: bool,
     pub min_id: u64,
+    pub spotify_regex: Regex,
 }
 
 impl Config {
@@ -30,6 +31,7 @@ impl Config {
             ),
             all_links: env::var("ALL_LINKS").is_ok(),
             min_id: 1417932789315014746,
+            spotify_regex: Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap(),
         }
     }
 }
@@ -37,8 +39,12 @@ impl Config {
 pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
     let http = ctx.as_ref();
 
-    let song_request_search =
-        get_all_messages(&http, config.song_request_channel_id).await.unwrap();
+    let song_request_search: Vec<Message> = get_all_messages(&http, config.song_request_channel_id)
+        .await
+        .unwrap()
+        .into_iter() // consumes the Vec<Message>, yields Message
+        .filter(|msg| msg.id.get() >= config.min_id)
+        .collect();
     let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
 
     if let Some(next_song) = find_next_song(&song_request_search, &sotd_search, &config).await {
@@ -112,17 +118,15 @@ pub async fn find_next_song(
     sotd_messages: &[Message],
     config: &Config,
 ) -> Option<String> {
-    let spotify_re = Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap();
-
     // Collect existing SOTD links
-    let existing_links = collect_links(Vec::from(sotd_messages), &spotify_re, config);
+    let existing_links = collect_links(Vec::from(sotd_messages), &config.spotify_regex);
 
     // Requests sorted oldest first
     let mut sorted = requests.to_vec();
     sorted.sort_by_key(|msg| msg.id);
 
     for msg in sorted {
-        for link_match in spotify_re.find_iter(&msg.content) {
+        for link_match in config.spotify_regex.find_iter(&msg.content) {
             let link = link_match.as_str().to_string();
             if !existing_links.contains(&link) {
                 return Some(link);
@@ -143,13 +147,12 @@ pub async fn print_new_links(ctx: &Context, config: &Config) {
         .await
         .unwrap();
 
-    let spotify_re = Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap();
-    let existing_links = collect_links(sotd_messages, &spotify_re, config);
+    let existing_links = collect_links(sotd_messages, &config.spotify_regex);
 
     let mut count = 0;
 
     for msg in requests {
-        for link_match in spotify_re.find_iter(&msg.content) {
+        for link_match in config.spotify_regex.find_iter(&msg.content) {
             let link = link_match.as_str();
             if !existing_links.contains(link) {
                 count += 1;
@@ -163,10 +166,9 @@ pub async fn print_new_links(ctx: &Context, config: &Config) {
     tracing::info!("There are {} requests not in sotd", count);
 }
 
-fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex, config: &Config) -> HashSet<String> {
+fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<String> {
     sotd_messages
         .iter()
-        .filter(|msg| msg.id.get() >= config.min_id)
         .flat_map(|msg| spotify_re.find_iter(&msg.content).map(|m| m.as_str().to_string()))
         .collect()
 }
