@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::env;
-use chrono::{Local, Utc};
+use chrono::{Local};
 use regex::Regex;
 use serenity::all::{ChannelId, Context, GetMessages, Message, MessageId, Http};
 
@@ -85,7 +85,7 @@ pub async fn find_next_song(
     sotd_messages: &[Message],
 ) -> Option<Message> {
     // Regex to extract Spotify links
-    let spotify_re = Regex::new(r"https?://open\.spotify\.com/[^\s?]+").unwrap();
+    let spotify_re = Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap();
 
     // Collect all SOTD links
     let existing_links = collect_links(Vec::from(sotd_messages), &spotify_re);
@@ -127,7 +127,7 @@ pub async fn print_new_links(ctx: &Context) {
     let sotd_messages = get_all_messages(&http, song_of_the_day_channel_id).await.unwrap();
 
     // Regex for Spotify links
-    let spotify_re = Regex::new(r"https?://open\.spotify\.com/[^\s?]+").unwrap();
+    let spotify_re = Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap();
 
     // Collect SOTD links
     let existing_links = collect_links(sotd_messages, &spotify_re);
