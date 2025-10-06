@@ -41,8 +41,8 @@ pub async fn should_run_sotd(ctx: &Context) -> bool {
 
     if let Some(last_msg) = last_msg_opt {
         tracing::debug!("last top-level message: {}", last_msg.content);
-        let last_date = last_msg.timestamp.date_naive();
-        let now = Utc::now().date_naive();
+        let last_date = last_msg.timestamp.with_timezone(&Local).date_naive();
+        let now = Local::now().date_naive();
         let result = last_date < now; // run if last top-level SOTD was before today
         tracing::debug!("last date: {} now: {}", last_date, now);
         result
