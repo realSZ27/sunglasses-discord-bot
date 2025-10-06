@@ -84,7 +84,6 @@ pub async fn find_next_song(
     requests: &[Message],
     sotd_messages: &[Message],
 ) -> Option<Message> {
-    // Regex to extract Spotify links
     let spotify_re = Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap();
 
     // Collect all SOTD links
@@ -95,16 +94,17 @@ pub async fn find_next_song(
     sorted.sort_by_key(|msg| msg.id);
 
     for msg in sorted {
-        if let Some(link_match) = spotify_re.find(&msg.content) {
+        for link_match in spotify_re.find_iter(&msg.content) {
             let link = link_match.as_str();
             if !existing_links.contains(link) {
-                return Some(msg);
+                return Some(msg); // return message containing first unseen link
             }
         }
     }
 
     None
 }
+
 pub async fn print_new_links(ctx: &Context) {
     let http = ctx.as_ref();
 
@@ -150,9 +150,8 @@ pub async fn print_new_links(ctx: &Context) {
 }
 
 fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<String> {
-    let existing_links: HashSet<String> = sotd_messages
+    sotd_messages
         .iter()
-        .filter_map(|msg| spotify_re.find(&msg.content).map(|m| m.as_str().to_string()))
-        .collect();
-    existing_links
+        .flat_map(|msg| spotify_re.find_iter(&msg.content).map(|m| m.as_str().to_string()))
+        .collect()
 }
