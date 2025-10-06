@@ -42,9 +42,10 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
     let song_request_search: Vec<Message> = get_all_messages(&http, config.song_request_channel_id)
         .await
         .unwrap()
-        .into_iter() // consumes the Vec<Message>, yields Message
+        .into_iter()
         .filter(|msg| msg.id.get() >= config.min_id)
         .collect();
+
     let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
 
     if let Some(next_song) = find_next_song(&song_request_search, &sotd_search, &config).await {
@@ -140,9 +141,13 @@ pub async fn find_next_song(
 pub async fn print_new_links(ctx: &Context, config: &Config) {
     let http = ctx.as_ref();
 
-    let requests = get_all_messages(&http, config.song_request_channel_id)
+    let requests: Vec<Message> = get_all_messages(&http, config.song_request_channel_id)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .filter(|msg| msg.id.get() >= config.min_id)
+        .collect();
+
     let sotd_messages = get_all_messages(&http, config.song_of_the_day_channel_id)
         .await
         .unwrap();
