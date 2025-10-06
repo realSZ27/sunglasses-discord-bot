@@ -1,41 +1,72 @@
 use std::collections::HashSet;
 use std::env;
-use chrono::{Local};
+use chrono::Local;
 use regex::Regex;
 use serenity::all::{ChannelId, Context, GetMessages, Message, MessageId, Http};
 
-pub async fn post_song_of_the_day(ctx: &Context) {
+/// Holds all environment and constant configuration.
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub song_request_channel_id: ChannelId,
+    pub song_of_the_day_channel_id: ChannelId,
+    pub all_links: bool,
+    pub min_id: u64,
+}
+
+impl Config {
+    pub fn new() -> Self {
+        Self {
+            song_request_channel_id: ChannelId::new(
+                env::var("SONG_REQUEST_CHANNEL_ID")
+                    .expect("Missing SONG_REQUEST_CHANNEL_ID")
+                    .parse()
+                    .expect("SONG_REQUEST_CHANNEL_ID must be a u64"),
+            ),
+            song_of_the_day_channel_id: ChannelId::new(
+                env::var("SOTD_CHANNEL_ID")
+                    .expect("Missing SOTD_CHANNEL_ID")
+                    .parse()
+                    .expect("SOTD_CHANNEL_ID must be a u64"),
+            ),
+            all_links: env::var("ALL_LINKS").is_ok(),
+            min_id: 1417932789315014746,
+        }
+    }
+}
+
+pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
     let http = ctx.as_ref();
 
-    let song_request_channel_id = ChannelId::new(env::var("SONG_REQUEST_CHANNEL_ID")
-        .expect("Missing SONG_REQUEST_CHANNEL_ID in env")
-        .parse()
-        .expect("SONG_REQUEST_CHANNEL_ID must be a u64"));
+    let song_request_search =
+        get_all_messages(&http, config.song_request_channel_id).await.unwrap();
+    let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
 
-    let song_of_the_day_channel_id = ChannelId::new(env::var("SOTD_CHANNEL_ID")
-        .expect("Missing SOTD_CHANNEL_ID in env")
-        .parse()
-        .expect("SOTD_CHANNEL_ID must be a u64"));
-
-    let song_request_search = get_all_messages(&http, song_request_channel_id).await.unwrap();
-    let sotd_search = get_all_messages(&http, song_of_the_day_channel_id).await.unwrap();
-
-    if let Some(next_song) = find_next_song(&song_request_search, &sotd_search).await {
-        tracing::info!("Next song: {} from {}", next_song.content, next_song.author.name);
-        song_of_the_day_channel_id.say(&ctx.http, format!("## SONG OF THE DAY {}\n{}", Local::now().format("%b %d, %Y"), next_song.content)).await.expect("TODO: panic message");
+    if let Some(next_song) = find_next_song(&song_request_search, &sotd_search, &config).await {
+        tracing::info!("Next song: {}", next_song);
+        config
+            .song_of_the_day_channel_id
+            .say(
+                &ctx.http,
+                format!(
+                    "## SONG OF THE DAY {}\n{}",
+                    Local::now().format("%b %d, %Y"),
+                    next_song
+                ),
+            )
+            .await
+            .expect("Failed to post Song of the Day");
     } else {
         tracing::warn!("No new song requests found!");
     }
 }
 
-pub async fn should_run_sotd(ctx: &Context) -> bool {
-    let song_of_the_day_channel_id = ChannelId::new(env::var("SOTD_CHANNEL_ID")
-        .expect("Missing SOTD_CHANNEL_ID in env")
-        .parse()
-        .expect("SOTD_CHANNEL_ID must be a u64"));
-
+pub async fn should_run_sotd(ctx: &Context, config: &Config) -> bool {
     let builder = GetMessages::new().limit(10);
-    let messages = song_of_the_day_channel_id.messages(ctx.http.clone(), builder).await.unwrap();
+    let messages = config
+        .song_of_the_day_channel_id
+        .messages(ctx.http.clone(), builder)
+        .await
+        .unwrap();
 
     let last_msg_opt = messages.into_iter().find(|m| m.thread.is_none());
 
@@ -57,13 +88,11 @@ pub async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::R
     let mut last_id: Option<MessageId> = None;
 
     loop {
-        // Build the GetMessages request
         let mut builder = GetMessages::new().limit(100);
         if let Some(id) = last_id {
             builder = builder.before(id);
         }
 
-        // Fetch messages batch
         let batch: Vec<Message> = channel_id.messages(http, builder).await?;
 
         if batch.is_empty() {
@@ -71,8 +100,6 @@ pub async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::R
         }
 
         all_messages.extend(batch.iter().cloned());
-
-        // Prepare next page: the oldest message in this batch
         last_id = batch.last().map(|m| m.id);
     }
 
@@ -83,11 +110,12 @@ pub async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::R
 pub async fn find_next_song(
     requests: &[Message],
     sotd_messages: &[Message],
-) -> Option<Message> {
+    config: &Config,
+) -> Option<String> {
     let spotify_re = Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap();
 
-    // Collect all SOTD links
-    let existing_links = collect_links(Vec::from(sotd_messages), &spotify_re);
+    // Collect existing SOTD links
+    let existing_links = collect_links(Vec::from(sotd_messages), &spotify_re, config);
 
     // Requests sorted oldest first
     let mut sorted = requests.to_vec();
@@ -95,9 +123,9 @@ pub async fn find_next_song(
 
     for msg in sorted {
         for link_match in spotify_re.find_iter(&msg.content) {
-            let link = link_match.as_str();
-            if !existing_links.contains(link) {
-                return Some(msg); // return message containing first unseen link
+            let link = link_match.as_str().to_string();
+            if !existing_links.contains(&link) {
+                return Some(link);
             }
         }
     }
@@ -105,34 +133,18 @@ pub async fn find_next_song(
     None
 }
 
-pub async fn print_new_links(ctx: &Context) {
+pub async fn print_new_links(ctx: &Context, config: &Config) {
     let http = ctx.as_ref();
 
-    let song_request_channel_id = ChannelId::new(
-        env::var("SONG_REQUEST_CHANNEL_ID")
-            .expect("Missing SONG_REQUEST_CHANNEL_ID")
-            .parse()
-            .expect("SONG_REQUEST_CHANNEL_ID must be a u64"),
-    );
+    let requests = get_all_messages(&http, config.song_request_channel_id)
+        .await
+        .unwrap();
+    let sotd_messages = get_all_messages(&http, config.song_of_the_day_channel_id)
+        .await
+        .unwrap();
 
-    let song_of_the_day_channel_id = ChannelId::new(
-        env::var("SOTD_CHANNEL_ID")
-            .expect("Missing SOTD_CHANNEL_ID")
-            .parse()
-            .expect("SOTD_CHANNEL_ID must be a u64"),
-    );
-
-    // Fetch messages
-    let requests = get_all_messages(&http, song_request_channel_id).await.unwrap();
-    let sotd_messages = get_all_messages(&http, song_of_the_day_channel_id).await.unwrap();
-
-    // Regex for Spotify links
     let spotify_re = Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap();
-
-    // Collect SOTD links
-    let existing_links = collect_links(sotd_messages, &spotify_re);
-
-    let all_links = env::var("ALL_LINKS").is_ok();
+    let existing_links = collect_links(sotd_messages, &spotify_re, config);
 
     let mut count = 0;
 
@@ -141,7 +153,9 @@ pub async fn print_new_links(ctx: &Context) {
             let link = link_match.as_str();
             if !existing_links.contains(link) {
                 count += 1;
-                if all_links { tracing::info!("Found new link: {}", link) }
+                if config.all_links {
+                    tracing::info!("Found new link: {}", link)
+                }
             }
         }
     }
@@ -149,9 +163,10 @@ pub async fn print_new_links(ctx: &Context) {
     tracing::info!("There are {} requests not in sotd", count);
 }
 
-fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<String> {
+fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex, config: &Config) -> HashSet<String> {
     sotd_messages
         .iter()
+        .filter(|msg| msg.id.get() >= config.min_id)
         .flat_map(|msg| spotify_re.find_iter(&msg.content).map(|m| m.as_str().to_string()))
         .collect()
 }
