@@ -35,7 +35,7 @@ impl EventHandler for Handler {
                     let should = should_run_sotd(&ctx).await;
                     tracing::debug!("Should run SOTD? {}", should);
 
-                    if should { post_song_of_the_day(&ctx).await; }
+                    if should { print_new_links(&ctx).await; post_song_of_the_day(&ctx).await; }
                 })
             }).unwrap()
         ).await.unwrap();
