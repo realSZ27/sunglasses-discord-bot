@@ -13,6 +13,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
 RUN cargo build --release --bin david-discord-bot-rs
+RUN chmod +x /app/target/release/david-discord-bot-rs
 
 # -------- Runtime stage --------
 FROM alpine:3.14
@@ -20,7 +21,6 @@ FROM alpine:3.14
 WORKDIR /app
 RUN apk add --no-cache tzdata
 COPY --from=builder /app/target/release/david-discord-bot-rs /app/
-RUN chmod +x ./david-discord-bot-rs
 
 ENV TZ=America/Chicago
 
