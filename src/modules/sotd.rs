@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::env;
 use chrono::Local;
 use regex::Regex;
-use serenity::all::{ChannelId, Context, GetMessages, Message, MessageId, Http};
+use serenity::all::{ChannelId, Context, GetMessages, Message, MessageId, Http, ReactionType};
 
 /// Holds all environment and constant configuration.
 #[derive(Clone, Debug)]
@@ -48,7 +48,7 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
 
     let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
 
-    if let Some(next_song) = find_next_song(&song_request_search, &sotd_search, &config).await {
+    if let Some((msg, next_song)) = find_next_song(&song_request_search, &sotd_search, &config).await {
         tracing::info!("Next song: {}", next_song);
         config
             .song_of_the_day_channel_id
@@ -62,6 +62,8 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
             )
             .await
             .expect("Failed to post Song of the Day");
+
+        msg.react(&ctx, ReactionType::Unicode("✅".to_string())).await.expect(&format!("Failed to react to message \"{}\" (id: {}) with ✅", msg.content, msg.id));
     } else {
         tracing::warn!("No new song requests found!");
     }
@@ -118,7 +120,7 @@ pub async fn find_next_song(
     requests: &[Message],
     sotd_messages: &[Message],
     config: &Config,
-) -> Option<String> {
+) -> Option<(Message, String)> {
     // Collect existing SOTD links
     let existing_links = collect_links(Vec::from(sotd_messages), &config.spotify_regex);
 
@@ -130,7 +132,7 @@ pub async fn find_next_song(
         for link_match in config.spotify_regex.find_iter(&msg.content) {
             let link = link_match.as_str().to_string();
             if !existing_links.contains(&link) {
-                return Some(link);
+                return Some((msg, link));
             }
         }
     }
