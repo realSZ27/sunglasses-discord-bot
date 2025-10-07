@@ -18,6 +18,7 @@ RUN cargo build --release --bin david-discord-bot-rs
 FROM alpine:3.14
 
 WORKDIR /app
+RUN apk add --no-cache tzdata
 COPY --from=builder /app/target/release/david-discord-bot-rs /app/
 RUN chmod +x ./david-discord-bot-rs
 

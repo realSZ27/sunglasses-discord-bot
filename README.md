@@ -8,12 +8,13 @@
 ## Usage
 [Build](#Build) it first. Then run it with the following environment variables:
 
-| Environment variable    | Description                                                                                                |
-|-------------------------|------------------------------------------------------------------------------------------------------------|
-| DISCORD_TOKEN           | Self explanatory. Set to your bot's token                                                                  |
-| SOTD_CHANNEL_ID         | Song of the day channel id. The id of the channel you want the song of the day to be posted.               |
-| SONG_REQUEST_CHANNEL_ID | The id of the channel you want the bot to look for song requests in.                                       |
-| ALL_LINKS               | If this variable is present, it will print all of the links that are waiting in the song requests channel. |
-| RUST_LOG                | Optional, set to DEBUG or TRACE if you need more verbose logs.                                             |
+| Environment variable    | Description                                                                                                                                                              |
+|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| DISCORD_TOKEN           | Self explanatory. Set to your bot's token                                                                                                                                |
+| SOTD_CHANNEL_ID         | Song of the day channel id. The id of the channel you want the song of the day to be posted.                                                                             |
+| SONG_REQUEST_CHANNEL_ID | The id of the channel you want the bot to look for song requests in.                                                                                                     |
+| ALL_LINKS               | If this variable is present, it will print all of the links that are waiting in the song requests channel.                                                               |
+| RUST_LOG                | Optional, set to DEBUG or TRACE if you need more verbose logs.                                                                                                           |
+| TZ                      | **Only in the docker container.** Optional, your [timezone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List). By default it will use `America/Chicago` |
 
 There is also a docker container in this repo. To run it, do a `git clone https://github.com/realSZ27/sunglasses-discord-bot.git` and modify/rename `docker-compose.example.yaml` to `compose.yaml`.
