@@ -16,6 +16,8 @@ impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         tracing::info!("{} is connected!", ready.user.name);
 
+        tracing::debug!("Current time is {}", Local::now().format("%H:%M:%S"));
+
         let config = Config::new();
 
         print_new_links(&ctx, &config).await;
