@@ -1,5 +1,5 @@
 FROM lukemathwalker/cargo-chef:latest-rust-1-alpine AS chef
-RUN apk add --no-cache opus-dev build-base
+RUN apk add --no-cache opus-dev build-base musl-dev
 WORKDIR /app
 
 FROM chef AS planner
