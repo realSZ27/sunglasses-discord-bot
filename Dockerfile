@@ -20,8 +20,10 @@ FROM alpine:3.14
 
 WORKDIR /app
 RUN apk add --no-cache tzdata
+COPY ./assets/breathing.opus /app/assets/breathing.opus
 COPY --from=builder /app/target/release/david-discord-bot-rs /app/
 
 ENV TZ=America/Chicago
+ENV SFX_FILE_PATH=/app/assets/breathing.opus
 
 CMD ["./david-discord-bot-rs"]
