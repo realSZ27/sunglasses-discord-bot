@@ -5,7 +5,7 @@ use chrono::Local;
 use serenity::async_trait;
 use songbird::SerenityInit;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{ debug, info, error, trace, warn };
+use tracing::{ debug, info };
 use tracing_subscriber::EnvFilter;
 use crate::modules::gust_abdalla::{join_and_play, leave_channel, should_join, should_leave};
 

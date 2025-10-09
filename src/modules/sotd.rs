@@ -3,6 +3,7 @@ use std::env;
 use chrono::Local;
 use regex::Regex;
 use serenity::all::{ChannelId, Context, GetMessages, Message, MessageId, Http, ReactionType};
+use tracing::{debug, info, warn};
 
 /// Holds all environment and constant configuration.
 #[derive(Clone, Debug)]
@@ -49,7 +50,7 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
     let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
 
     if let Some((msg, next_song)) = find_next_song(&song_request_search, &sotd_search, &config).await {
-        tracing::info!("Next song: {}", next_song);
+        info!("Next song: {}", next_song);
         config
             .song_of_the_day_channel_id
             .say(
@@ -65,7 +66,7 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
 
         msg.react(&ctx, ReactionType::Unicode("✅".to_string())).await.expect(&format!("Failed to react to message \"{}\" (id: {}) with ✅", msg.content, msg.id));
     } else {
-        tracing::warn!("No new song requests found!");
+        warn!("No new song requests found!");
     }
 }
 
@@ -80,14 +81,14 @@ pub async fn should_run_sotd(ctx: &Context, config: &Config) -> bool {
     let last_msg_opt = messages.into_iter().find(|m| m.thread.is_none());
 
     if let Some(last_msg) = last_msg_opt {
-        tracing::debug!("last top-level message: {}", last_msg.content);
+        debug!("last top-level message: {}", last_msg.content);
         let last_date = last_msg.timestamp.with_timezone(&Local).date_naive();
         let now = Local::now().date_naive();
         let result = last_date < now; // run if last top-level SOTD was before today
-        tracing::debug!("last date: {} now: {}", last_date, now);
+        debug!("last date: {} now: {}", last_date, now);
         result
     } else {
-        tracing::debug!("no top-level messages found yet");
+        debug!("no top-level messages found yet");
         true // nothing posted yet, run
     }
 }
@@ -164,13 +165,13 @@ pub async fn print_new_links(ctx: &Context, config: &Config) {
             if !existing_links.contains(link) {
                 count += 1;
                 if config.all_links {
-                    tracing::info!("Found new link: {}", link)
+                    info!("Found new link: {}", link)
                 }
             }
         }
     }
 
-    tracing::info!("There are {} requests not in sotd", count);
+    info!("There are {} requests not in sotd", count);
 }
 
 fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<String> {
