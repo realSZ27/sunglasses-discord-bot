@@ -1,5 +1,5 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1-alpine AS chef
-RUN apk add --no-cache opus-dev opus-static build-base musl-dev
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+RUN apt-get update && apt-get install -y libopus-dev pkg-config build-essential
 WORKDIR /app
 
 FROM chef AS planner
