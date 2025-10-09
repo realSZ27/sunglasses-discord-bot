@@ -1,7 +1,7 @@
 use std::env;
 use serenity::all::{ChannelId, Context, GuildId};
 use songbird::tracks::{LoopState, Track};
-use tracing::{debug, info, error, trace, warn};
+use tracing::{debug};
 
 /// Count non-bot users in the channel using cached guild voice states.
 /// Kept private per your request.
