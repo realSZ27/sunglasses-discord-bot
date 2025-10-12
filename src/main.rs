@@ -36,7 +36,7 @@ impl EventHandler for Handler {
 
         // "0 * * * * *" "0 12 * * * *"
         sched.add(
-            Job::new_async_tz("0 1 * * * *", Local, move |_uuid, _l| {
+            Job::new_async_tz("0 2 * * * *", Local, move |_uuid, _l| {
                 let ctx= ctx.clone();
                 let config = config.clone();
                 Box::pin(async move {
