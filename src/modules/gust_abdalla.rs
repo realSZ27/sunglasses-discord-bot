@@ -111,6 +111,9 @@ pub async fn join_and_play(ctx: &Context, guild_id: GuildId, channel_id: Channel
 
     let mut handler = call.lock().await;
 
+    // stop the previous loop(s)
+    handler.queue().stop();
+
     let path = env::var("SFX_FILE_PATH").expect("Missing SFX_FILE_PATH");
 
     // create the input source
