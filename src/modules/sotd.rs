@@ -49,7 +49,14 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
 
     let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
 
-    if let Some((msg, next_song)) = find_next_song(&song_request_search, &sotd_search, &config).await {
+    let skip_user = get_yesterdays_requester_from_cache(
+        &sotd_search,
+        &song_request_search,
+        &config.spotify_regex,
+    );
+    
+    if let Some((msg, next_song)) =
+        find_next_song(&song_request_search, &sotd_search, &config, skip_user).await {
         info!("Next song: {}", next_song);
         config
             .song_of_the_day_channel_id
@@ -121,15 +128,20 @@ pub async fn find_next_song(
     requests: &[Message],
     sotd_messages: &[Message],
     config: &Config,
+    skip_user: Option<u64>,
 ) -> Option<(Message, String)> {
-    // Collect existing SOTD links
     let existing_links = collect_links(Vec::from(sotd_messages), &config.spotify_regex);
 
-    // Requests sorted oldest first
     let mut sorted = requests.to_vec();
     sorted.sort_by_key(|msg| msg.id);
 
     for msg in sorted {
+        if let Some(skip) = skip_user {
+            if msg.author.id.get() == skip {
+                continue;
+            }
+        }
+
         for link_match in config.spotify_regex.find_iter(&msg.content) {
             let link = link_match.as_str().to_string();
             if !existing_links.contains(&link) {
@@ -179,4 +191,26 @@ fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<Str
         .iter()
         .flat_map(|msg| spotify_re.find_iter(&msg.content).map(|m| m.as_str().to_string()))
         .collect()
+}
+
+fn get_yesterdays_requester_from_cache(
+    sotd_messages: &[Message],
+    request_messages: &[Message],
+    spotify_re: &Regex,
+) -> Option<u64> {
+    // Find most recent top-level SOTD
+    let last_sotd = sotd_messages
+        .iter()
+        .filter(|m| m.thread.is_none())
+        .max_by_key(|m| m.id)?;
+
+    // Extract the link posted in that SOTD
+    let link = spotify_re.find(&last_sotd.content)?.as_str();
+
+    // Find the original request that contains that same link
+    let requester = request_messages
+        .iter()
+        .find(|req| req.content.contains(link))?;
+
+    Some(requester.author.id.get())
 }
