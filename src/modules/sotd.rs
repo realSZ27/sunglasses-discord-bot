@@ -32,7 +32,7 @@ impl Config {
             ),
             all_links: env::var("ALL_LINKS").is_ok(),
             min_id: 1417932789315014746,
-            spotify_regex: Regex::new(r"https?://open\.spotify\.com/track/[^\s?]+").unwrap(),
+            spotify_regex: Regex::new(r"https?://(?:open\.spotify\.com/track/[^\s]+|spotify\.link/[^\s]+)").unwrap(),
         }
     }
 }
