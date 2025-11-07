@@ -1,6 +1,8 @@
 use serenity::all::{Ready, VoiceState};
 use serenity::prelude::*;
 use std::env;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Local;
 use serenity::async_trait;
 use songbird::SerenityInit;
@@ -14,45 +16,99 @@ mod modules;
 use crate::modules::sotd::*;
 struct Handler;
 
+struct SchedCreated;
+impl TypeMapKey for SchedCreated { type Value = Arc<AtomicBool>; }
+
+struct SotdLock;
+impl TypeMapKey for SotdLock { type Value = Arc<Mutex<()>>; }
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("{} is connected!", ready.user.name);
-
         debug!("Current time is {}", Local::now().format("%H:%M:%S"));
+
+        // Ensure TypeMap entries exist (scheduler flag + mutex)
+        {
+            let mut data = ctx.data.write().await;
+            data.entry::<SchedCreated>()
+                .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+            data.entry::<SotdLock>()
+                .or_insert_with(|| Arc::new(Mutex::new(())));
+        }
 
         let config = Config::new();
 
-        print_new_links(&ctx, &config).await;
+        // run once when the bot starts up (take the lock to avoid race with scheduled job)
+        {
+            // Acquire the mutex so initial run can't race with scheduled run
+            let sotd_lock = {
+                let data = ctx.data.read().await;
+                data.get::<SotdLock>().unwrap().clone()
+            };
+            let _guard = sotd_lock.lock().await;
 
-        // run once when the bot starts up
-        let should = should_run_sotd(&ctx, &config).await;
-        debug!("Should run SOTD? {}", should);
+            let should = should_run_sotd(&ctx, &config).await;
+            debug!("Should run SOTD? {}", should);
+            if should { post_song_of_the_day(&ctx, &config).await; }
+        }
 
-        if should { post_song_of_the_day(&ctx, &config).await; }
+        // Only create the scheduler once (guard with the atomic flag)
+        let already = {
+            let data = ctx.data.read().await;
+            data.get::<SchedCreated>().unwrap().load(Ordering::SeqCst)
+        };
 
-        // schedules the sotd check for every day at noon
-        let sched = JobScheduler::new().await.unwrap();
+        if already {
+            info!("SOTD scheduler already created; skipping creation in ready handler");
+        } else {
+            // Attempt to set the flag; if another ready beat us, skip creating scheduler
+            let did_set = {
+                let data = ctx.data.read().await;
+                let flag = data.get::<SchedCreated>().unwrap().clone();
+                // swap returns previous value. If it was false, we've set it to true.
+                !flag.swap(true, Ordering::SeqCst)
+            };
 
-        // "0 * * * * *" "0 12 * * * *"
-        sched.add(
-            Job::new_async_tz("0 2 * * * *", Local, move |_uuid, _l| {
-                let ctx= ctx.clone();
-                let config = config.clone();
-                Box::pin(async move {
-                    info!("running sotd task");
-                    let should = should_run_sotd(&ctx, &config).await;
-                    debug!("Should run SOTD? {}", should);
+            if did_set {
+                let sched = JobScheduler::new().await.unwrap();
 
-                    if should { print_new_links(&ctx, &config).await; post_song_of_the_day(&ctx, &config).await; }
-                })
-            }).unwrap()
-        ).await.unwrap();
+                // capture a clone of ctx + config + sotd_lock for use inside the job
+                let sotd_lock = {
+                    let data = ctx.data.read().await;
+                    data.get::<SotdLock>().unwrap().clone()
+                };
 
-        sched.start().await.expect("Couldn't start cron job");
+                sched.add(
+                    Job::new_async_tz("0 2 * * * *", Local, move |_uuid, _l| {
+                        let ctx = ctx.clone();
+                        let config = config.clone();
+                        let sotd_lock = sotd_lock.clone();
+                        Box::pin(async move {
+                            info!("running sotd task");
 
-        info!("started cron job");
+                            // Acquire the mutex so two scheduler callbacks can't both pass should_run_sotd
+                            let _guard = sotd_lock.lock().await;
+
+                            let should = should_run_sotd(&ctx, &config).await;
+                            debug!("Should run SOTD? {}", should);
+                            if should {
+                                print_new_links(&ctx, &config).await;
+                                post_song_of_the_day(&ctx, &config).await;
+                            }
+                        })
+                    }).unwrap()
+                ).await.unwrap();
+
+                sched.start().await.expect("Couldn't start cron job");
+                info!("started cron job");
+                // You might want to store the scheduler handle in ctx.data if you need to stop it later
+            } else {
+                info!("Another ready handler created the scheduler first; skipping creation");
+            }
+        }
     }
+    
     async fn voice_state_update(&self, ctx: Context, old: Option<VoiceState>, new: VoiceState) {
         debug!("Voice state update fired: old={:?}, new={:?}", old, new);
 
