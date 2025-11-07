@@ -1,6 +1,4 @@
-use std::env;
 use serenity::all::{ChannelId, Context, GuildId};
-use songbird::tracks::{LoopState, Track};
 use tracing::{debug};
 
 /// Count non-bot users in the channel using cached guild voice states.
@@ -99,6 +97,13 @@ pub async fn join_and_play(ctx: &Context, guild_id: GuildId, channel_id: Channel
 
     let manager = songbird::get(ctx).await.expect("Songbird not initialized");
 
+    // Clear any previous queue if a handler exists
+    if let Some(existing_lock) = manager.get(guild_id) {
+        let existing = existing_lock.lock().await;
+        existing.queue().stop();
+        debug!("Cleared existing handler queue (if any) before join");
+    }
+
     let call = match manager.join(guild_id, channel_id).await {
         Ok(c) => c,
         Err(e) => {
@@ -111,18 +116,11 @@ pub async fn join_and_play(ctx: &Context, guild_id: GuildId, channel_id: Channel
 
     let mut handler = call.lock().await;
 
-    // stop the previous loop(s)
-    handler.queue().stop();
-
-    let path = env::var("SFX_FILE_PATH").expect("Missing SFX_FILE_PATH");
-
-    // create the input source
+    let path = std::env::var("SFX_FILE_PATH").expect("Missing SFX_FILE_PATH");
     let source = songbird::input::File::new(path);
+    let track = songbird::tracks::Track::from(source).loops(songbird::tracks::LoopState::Infinite);
 
-    // build a Track from the input and set infinite looping _before_ we play it
-    let track = Track::from(source).loops(LoopState::Infinite);
-
-    // hand the Track to the driver; returns a TrackHandle
+    handler.queue().stop(); // clear queue before starting
     let _handle = handler.play(track);
 
     debug!("Now playing looping audio in channel {}", channel_id);
@@ -134,9 +132,17 @@ pub async fn leave_channel(ctx: &Context, guild_id: GuildId) {
 
     let manager = songbird::get(ctx).await.expect("Songbird not initialized");
 
-    if let Err(e) = manager.leave(guild_id).await {
-        debug!("Failed to leave channel: {:?}", e);
-    } else {
-        debug!("Left channel successfully");
+    // Stop any queued tracks if a handler exists
+    if let Some(handler_lock) = manager.get(guild_id) {
+        let handler = handler_lock.lock().await;
+        handler.queue().stop();
+        debug!("Stopped handler queue for guild {}", guild_id);
+        // lock drops here
+    }
+
+    // Remove the handler entirely
+    match manager.remove(guild_id).await {
+        Ok(()) => debug!("Removed handler and left channel for guild {}", guild_id),
+        Err(e) => debug!("Failed to remove/leave channel for guild {}: {:?}", guild_id, e),
     }
 }
