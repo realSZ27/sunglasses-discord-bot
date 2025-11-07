@@ -24,14 +24,14 @@ ENV SFX_FILE_PATH=/app/assets/breathing.opus
 
 WORKDIR /app
 
-COPY ./assets/breathing.opus /app/assets/breathing.opus
-COPY --from=builder /app/target/release/david-discord-bot-rs /app/
-
 RUN apt-get update && \
     apt-get install -y --no-install-recommends tzdata libopus0 ca-certificates && \
     ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime && \
     echo "${TZ}" > /etc/timezone && \
     dpkg-reconfigure --frontend noninteractive tzdata && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+COPY ./assets/breathing.opus /app/assets/breathing.opus
+COPY --from=builder /app/target/release/david-discord-bot-rs /app/
 
 CMD ["./david-discord-bot-rs"]
