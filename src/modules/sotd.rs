@@ -49,12 +49,12 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
 
     let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
 
-    let skip_user = get_yesterdays_requester_from_cache(
+    let skip_user = get_yesterdays_requester(
         &sotd_search,
         &song_request_search,
         &config.spotify_regex,
     );
-    
+
     if let Some((msg, next_song)) =
         find_next_song(&song_request_search, &sotd_search, &config, skip_user).await {
         info!("Next song: {}", next_song);
@@ -193,7 +193,7 @@ fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<Str
         .collect()
 }
 
-fn get_yesterdays_requester_from_cache(
+fn get_yesterdays_requester(
     sotd_messages: &[Message],
     request_messages: &[Message],
     spotify_re: &Regex,
