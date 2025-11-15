@@ -1,5 +1,9 @@
 /target
 /.idea
+compose.yaml
+compose.yml
+docker-compose.yaml
+docker-compose.yml
 
 # Default ignored files
 /shelf/
