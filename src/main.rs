@@ -48,9 +48,8 @@ impl EventHandler for Handler {
             };
             let _guard = sotd_lock.lock().await;
 
-            let should = should_run_sotd(&ctx, &config).await;
-            debug!("Should run SOTD? {}", should);
-            if should { post_song_of_the_day(&ctx, &config).await; }
+            print_new_links(&ctx, &config).await; 
+            post_song_of_the_day(&ctx, &config).await; 
         }
 
         // Only create the scheduler once (guard with the atomic flag)
@@ -90,12 +89,8 @@ impl EventHandler for Handler {
                             // Acquire the mutex so two scheduler callbacks can't both pass should_run_sotd
                             let _guard = sotd_lock.lock().await;
 
-                            let should = should_run_sotd(&ctx, &config).await;
-                            debug!("Should run SOTD? {}", should);
-                            if should {
-                                print_new_links(&ctx, &config).await;
-                                post_song_of_the_day(&ctx, &config).await;
-                            }
+                            print_new_links(&ctx, &config).await;
+                            post_song_of_the_day(&ctx, &config).await;
                         })
                     }).unwrap()
                 ).await.unwrap();

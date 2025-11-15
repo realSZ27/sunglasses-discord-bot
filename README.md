@@ -18,5 +18,7 @@
 | SFX_FILE_PATH           | The path to the sound effect played when bot joins an empty call. Must be an opus file format.                                                                           |
 | RUST_LOG                | Optional, set to DEBUG or TRACE if you need more verbose logs.                                                                                                           |
 | TZ                      | **Only in the docker container.** Optional, your [timezone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List). By default it will use `America/Chicago` |
+| DRY_RUN                 | Optional, runs sotd task as normal, except doesn't send the message at the end. Useful for debugging.                                                                    |
+| SKIP_RUN_CHECK          | Optional, runs the sotd task even if there was already one posted today. Useful for debugging.                                                                           |
 
 There is also a docker container in this repo. To run it, do a `git clone https://github.com/realSZ27/sunglasses-discord-bot.git` and modify/rename `docker-compose.example.yaml` to `compose.yaml`.

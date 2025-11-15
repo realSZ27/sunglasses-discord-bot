@@ -3,7 +3,7 @@ use std::env;
 use chrono::Local;
 use regex::Regex;
 use serenity::all::{ChannelId, Context, GetMessages, Http, Message, MessageId, ReactionType, User};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 /// Holds all environment and constant configuration.
 #[derive(Clone, Debug)]
@@ -11,6 +11,8 @@ pub struct Config {
     pub song_request_channel_id: ChannelId,
     pub song_of_the_day_channel_id: ChannelId,
     pub all_links: bool,
+    pub dry_run: bool,
+    pub skip_run_check: bool,
     pub min_id: u64,
     pub spotify_regex: Regex,
 }
@@ -31,13 +33,20 @@ impl Config {
                     .expect("SOTD_CHANNEL_ID must be a u64"),
             ),
             all_links: env::var("ALL_LINKS").is_ok(),
+            dry_run: env::var("DRY_RUN").is_ok(),
+            skip_run_check: env::var("SKIP_RUN_CHECK").is_ok(),
             min_id: 1417932789315014746,
-            spotify_regex: Regex::new(r"https?://(?:open\.spotify\.com/track/[^\s]+|spotify\.link/[^\s]+)").unwrap(),
+            spotify_regex: Regex::new(r"https?://(?:open\.spotify\.com/track/[^\s?]+|spotify\.link/[^\s?]+)").unwrap(),
         }
     }
 }
 
 pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
+    if !(config.skip_run_check || should_run_sotd(ctx, config).await) {
+        info!("Not running song of the day. One has already been posted");
+        return;
+    }
+
     let http = ctx.as_ref();
 
     let song_request_search: Vec<Message> = get_all_messages(&http, config.song_request_channel_id)
@@ -51,26 +60,28 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
 
     if let Some((msg, next_song)) = find_next_song(&song_request_search, &sotd_search, &config).await {
         info!("Next song: {}", next_song);
-        config
-            .song_of_the_day_channel_id
-            .say(
-                &ctx.http,
-                format!(
-                    "## SONG OF THE DAY {}\n{}",
-                    Local::now().format("%b %d, %Y"),
-                    next_song
-                ),
-            )
-            .await
-            .expect("Failed to post Song of the Day");
+        if !config.dry_run {
+            config
+                .song_of_the_day_channel_id
+                .say(
+                    &ctx.http,
+                    format!(
+                        "## SONG OF THE DAY {}\n{}",
+                        Local::now().format("%b %d, %Y"),
+                        next_song
+                    ),
+                )
+                .await
+                .expect("Failed to post Song of the Day");
 
-        msg.react(&ctx, ReactionType::Unicode("✅".to_string())).await.expect(&format!("Failed to react to message \"{}\" (id: {}) with ✅", msg.content, msg.id));
+            msg.react(&ctx, ReactionType::Unicode("✅".to_string())).await.expect(&format!("Failed to react to message \"{}\" (id: {}) with ✅", msg.content, msg.id));
+        }
     } else {
         warn!("No new song requests found!");
     }
 }
 
-pub async fn should_run_sotd(ctx: &Context, config: &Config) -> bool {
+async fn should_run_sotd(ctx: &Context, config: &Config) -> bool {
     let builder = GetMessages::new().limit(10);
     let messages = config
         .song_of_the_day_channel_id
@@ -93,7 +104,7 @@ pub async fn should_run_sotd(ctx: &Context, config: &Config) -> bool {
     }
 }
 
-pub async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::Result<Vec<Message>> {
+async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::Result<Vec<Message>> {
     let mut all_messages = Vec::new();
     let mut last_id: Option<MessageId> = None;
 
@@ -117,25 +128,42 @@ pub async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::R
 }
 
 /// Finds the oldest song request not already in the SOTD channel.
-pub async fn find_next_song(
+async fn find_next_song(
     requests: &[Message],
     sotd_messages: &[Message],
     config: &Config,
 ) -> Option<(Message, String)> {
-    // Collect existing SOTD links
+    // Collect existing SOTD links (only the matched part)
     let existing_links = collect_links(Vec::from(sotd_messages), &config.spotify_regex);
+
+    trace!("Existing links in SOTD channel: {:?}", existing_links);
 
     // Requests sorted oldest first
     let mut sorted = requests.to_vec();
     sorted.sort_by_key(|msg| msg.id);
 
+    trace!("Open requests: {:?}", sorted.iter().map(|msg| &msg.content).collect::<Vec<&String>>());
+
     for msg in sorted {
         for link_match in config.spotify_regex.find_iter(&msg.content) {
             let link_str = link_match.as_str().to_string();
-            if !existing_links.contains(&link_str) && 
-               !msg.author.eq(&get_yesterdays_requester(sotd_messages, requests, &config.spotify_regex)?)
-            {
+            
+            debug!("Checking link: {}", link_str);
+            debug!("Link in existing_links: {}", existing_links.contains(&link_str));
+            
+            let yesterday_requester = get_yesterdays_requester(sotd_messages, requests, &config.spotify_regex);
+            debug!("Yesterday's requester: {:?}", yesterday_requester.as_ref().map(|u| &u.name));
+            debug!("Current message author: {}", msg.author.name);
+            
+            let is_yesterdays_requester = yesterday_requester.as_ref().map_or(false, |user| msg.author.eq(user));
+            debug!("Is yesterday's requester: {}", is_yesterdays_requester);
+
+            if !existing_links.contains(&link_str) && !is_yesterdays_requester {
+                debug!("Selected this link: {}", link_str);
                 return Some((msg, link_str));
+            } else {
+                debug!("Skipping link: {} - in existing: {}, is yesterday's requester: {}", 
+                       link_str, existing_links.contains(&link_str), is_yesterdays_requester);
             }
         }
     }
