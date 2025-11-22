@@ -66,9 +66,10 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
                 .say(
                     &ctx.http,
                     format!(
-                        "## SONG OF THE DAY {}\n{}",
+                        "# SONG OF THE DAY {}\n{} \n-# Requested by <@{}>",
                         Local::now().format("%b %d, %Y"),
-                        next_song
+                        next_song,
+                        msg.author.id
                     ),
                 )
                 .await

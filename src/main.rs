@@ -48,8 +48,8 @@ impl EventHandler for Handler {
             };
             let _guard = sotd_lock.lock().await;
 
-            print_new_links(&ctx, &config).await; 
-            post_song_of_the_day(&ctx, &config).await; 
+            print_new_links(&ctx, &config).await;
+            post_song_of_the_day(&ctx, &config).await;
         }
 
         // Only create the scheduler once (guard with the atomic flag)
