@@ -5,7 +5,7 @@ use chrono::Local;
 use serenity::async_trait;
 use songbird::SerenityInit;
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{ debug, info };
+use tracing::{ debug, info, trace };
 use tracing_subscriber::EnvFilter;
 use crate::modules::gust_abdalla::{join_and_play, leave_channel, should_join, should_leave};
 
@@ -37,7 +37,7 @@ impl EventHandler for Handler {
         // "0 * * * * *" "0 12 * * * *"
         sched.add(
             Job::new_async_tz("0 1 * * * *", Local, move |_uuid, _l| {
-                let ctx= ctx.clone();
+                let ctx = ctx.clone();
                 let config = config.clone();
                 Box::pin(async move {
                     info!("running sotd task");
@@ -54,7 +54,7 @@ impl EventHandler for Handler {
         info!("started cron job");
     }
     async fn voice_state_update(&self, ctx: Context, old: Option<VoiceState>, new: VoiceState) {
-        debug!("Voice state update fired: old={:?}, new={:?}", old, new);
+        trace!("Voice state update fired: old={:?}, new={:?}", old, new);
 
         let guild_id = match new.guild_id.or_else(|| old.as_ref().and_then(|o| o.guild_id)) {
             Some(id) => id,
@@ -78,28 +78,28 @@ impl EventHandler for Handler {
         if let Some(prev_cid) = old_channel {
             // Only respond to humans leaving/joining (ignore bot events).
             if !event_is_bot {
-                debug!("Detected change from old channel {} -> {:?}", prev_cid, new_channel);
+                trace!("Detected change from old channel {} -> {:?}", prev_cid, new_channel);
 
                 // If bot should leave, do that and return.
                 if should_leave(&ctx, guild_id, prev_cid).await {
-                    debug!("Decided to leave channel {} due to occupancy change", prev_cid);
+                    trace!("Decided to leave channel {} due to occupancy change", prev_cid);
                     leave_channel(&ctx, guild_id).await;
                     return;
                 } else {
-                    debug!("Not leaving channel {} after change", prev_cid);
+                    trace!("Not leaving channel {} after change", prev_cid);
 
                     // If we didn't need to leave, maybe we should *join* because humans dropped to 1.
                     // This handles the case: channel went 2->1 (someone left) and bot is not connected.
                     if should_join(&ctx, guild_id, prev_cid).await {
-                        debug!("Re-joining channel {} because occupant count dropped to 1", prev_cid);
+                        trace!("Re-joining channel {} because occupant count dropped to 1", prev_cid);
                         join_and_play(&ctx, guild_id, prev_cid).await;
                         return;
                     } else {
-                        debug!("After change, not joining channel {} (not eligible)", prev_cid);
+                        trace!("After change, not joining channel {} (not eligible)", prev_cid);
                     }
                 }
             } else {
-                debug!("Skipping leave checks for bot-origin event");
+                trace!("Skipping leave checks for bot-origin event");
             }
         }
 
@@ -120,13 +120,13 @@ impl EventHandler for Handler {
                     debug!("Decided to join channel {}", cid);
                     join_and_play(&ctx, guild_id, cid).await;
                 } else {
-                    debug!("Should not join channel {} (not eligible)", cid);
+                    trace!("Should not join channel {} (not eligible)", cid);
                 }
             } else {
-                debug!("Skipping join checks for bot-origin event");
+                trace!("Skipping join checks for bot-origin event");
             }
         } else {
-            debug!("No channel_id in new voice state — nothing to do for join");
+            trace!("No channel_id in new voice state — nothing to do for join");
         }
     }
 }
