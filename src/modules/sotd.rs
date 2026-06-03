@@ -1,9 +1,12 @@
-use std::collections::HashSet;
-use std::env;
 use chrono::Local;
 use regex::Regex;
-use serenity::all::{ChannelId, Context, GetMessages, Message, MessageId, Http, ReactionType};
+use serenity::all::{ChannelId, Context, GetMessages, Http, Message, MessageId, ReactionType};
+use std::env;
+use std::path::Path;
+use std::{collections::HashSet, fs};
 use tracing::{debug, info, warn};
+
+const STICKY_FILE: &str = "config/sticky_message_id.txt";
 
 /// Holds all environment and constant configuration.
 #[derive(Clone, Debug)]
@@ -47,24 +50,38 @@ pub async fn post_song_of_the_day(ctx: &Context, config: &Config) {
         .filter(|msg| msg.id.get() >= config.min_id)
         .collect();
 
-    let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id).await.unwrap();
+    let sotd_search = get_all_messages(&http, config.song_of_the_day_channel_id)
+        .await
+        .unwrap();
 
-    if let Some((msg, next_song)) = find_next_song(&song_request_search, &sotd_search, &config).await {
+    if let Some((msg, next_song)) =
+        find_next_song(&song_request_search, &sotd_search, &config).await
+    {
         info!("Next song: {}", next_song);
         config
             .song_of_the_day_channel_id
             .say(
                 &ctx.http,
                 format!(
-                    "## SONG OF THE DAY {}\n{}",
+                    "## SONG OF THE DAY {}\n{}\n-# Requested by <@{}>",
                     Local::now().format("%b %d, %Y"),
-                    next_song
+                    next_song,
+                    msg.author.id
                 ),
             )
             .await
             .expect("Failed to post Song of the Day");
 
-        msg.react(&ctx, ReactionType::Unicode("✅".to_string())).await.expect(&format!("Failed to react to message \"{}\" (id: {}) with ✅", msg.content, msg.id));
+        msg.react(&ctx, ReactionType::Unicode("✅".to_string()))
+            .await
+            .expect(&format!(
+                "Failed to react to message \"{}\" (id: {}) with ✅",
+                msg.content, msg.id
+            ));
+
+        if let Err(err) = update_queue_sticky(ctx, config).await {
+            warn!("Failed to update queue sticky: {}", err);
+        }
     } else {
         warn!("No new song requests found!");
     }
@@ -93,7 +110,10 @@ pub async fn should_run_sotd(ctx: &Context, config: &Config) -> bool {
     }
 }
 
-pub async fn get_all_messages(http: &Http, channel_id: ChannelId) -> serenity::Result<Vec<Message>> {
+pub async fn get_all_messages(
+    http: &Http,
+    channel_id: ChannelId,
+) -> serenity::Result<Vec<Message>> {
     let mut all_messages = Vec::new();
     let mut last_id: Option<MessageId> = None;
 
@@ -142,18 +162,19 @@ pub async fn find_next_song(
 }
 
 pub async fn print_new_links(ctx: &Context, config: &Config) {
-    let http = ctx.as_ref();
+    let count = remaining_song_count(ctx, config).await.unwrap();
 
-    let requests: Vec<Message> = get_all_messages(&http, config.song_request_channel_id)
-        .await
-        .unwrap()
+    info!("There are {} requests not in sotd", count);
+}
+
+pub async fn remaining_song_count(ctx: &Context, config: &Config) -> serenity::Result<usize> {
+    let requests: Vec<Message> = get_all_messages(ctx.as_ref(), config.song_request_channel_id)
+        .await?
         .into_iter()
-        .filter(|msg| msg.id.get() >= config.min_id)
+        .filter(|msg| msg.id.get() >= config.min_id && !msg.author.bot)
         .collect();
 
-    let sotd_messages = get_all_messages(&http, config.song_of_the_day_channel_id)
-        .await
-        .unwrap();
+    let sotd_messages = get_all_messages(ctx.as_ref(), config.song_of_the_day_channel_id).await?;
 
     let existing_links = collect_links(sotd_messages, &config.spotify_regex);
 
@@ -162,21 +183,64 @@ pub async fn print_new_links(ctx: &Context, config: &Config) {
     for msg in requests {
         for link_match in config.spotify_regex.find_iter(&msg.content) {
             let link = link_match.as_str();
+
             if !existing_links.contains(link) {
                 count += 1;
-                if config.all_links {
-                    info!("Found new link: {}", link)
-                }
             }
         }
     }
 
-    info!("There are {} requests not in sotd", count);
+    Ok(count)
 }
 
 fn collect_links(sotd_messages: Vec<Message>, spotify_re: &Regex) -> HashSet<String> {
     sotd_messages
         .iter()
-        .flat_map(|msg| spotify_re.find_iter(&msg.content).map(|m| m.as_str().to_string()))
+        .flat_map(|msg| {
+            spotify_re
+                .find_iter(&msg.content)
+                .map(|m| m.as_str().to_string())
+        })
         .collect()
+}
+
+fn load_sticky_id() -> Option<MessageId> {
+    let text = fs::read_to_string(STICKY_FILE).ok()?;
+    let id = text.trim().parse::<u64>().ok()?;
+    Some(MessageId::new(id))
+}
+
+fn save_sticky_id(id: MessageId) {
+    if let Some(parent) = Path::new(STICKY_FILE).parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            tracing::warn!("Failed to create config directory: {}", err);
+            return;
+        }
+    }
+
+    if let Err(err) = fs::write(STICKY_FILE, id.get().to_string()) {
+        tracing::warn!("Failed to save sticky ID: {}", err);
+    }
+}
+
+pub async fn update_queue_sticky(ctx: &Context, config: &Config) -> serenity::Result<()> {
+    let count = remaining_song_count(ctx, config).await?;
+
+    let content = format!("📻 **{} songs remain in the queue.**", count);
+
+    if let Some(old_id) = load_sticky_id() {
+        let _ = config
+            .song_request_channel_id
+            .delete_message(&ctx.http, old_id)
+            .await;
+    }
+
+    let new_message = config
+        .song_request_channel_id
+        .say(&ctx.http, content)
+        .await?;
+
+    save_sticky_id(new_message.id);
+
+    Ok(())
 }

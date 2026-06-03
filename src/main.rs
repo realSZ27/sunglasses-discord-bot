@@ -1,53 +1,70 @@
-use serenity::all::{Ready, VoiceState};
-use serenity::prelude::*;
-use std::env;
-use chrono::Local;
-use serenity::async_trait;
-use songbird::SerenityInit;
-use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{ debug, info, trace };
-use tracing_subscriber::EnvFilter;
 use crate::modules::gust_abdalla::{join_and_play, leave_channel, should_join, should_leave};
+use chrono::Local;
+use serenity::all::{Message, Ready, VoiceState};
+use serenity::async_trait;
+use serenity::prelude::*;
+use songbird::SerenityInit;
+use std::env;
+use std::sync::OnceLock;
+use tokio_cron_scheduler::{Job, JobScheduler};
+use tracing::{debug, info, trace};
+use tracing_subscriber::EnvFilter;
 
 mod modules;
 
 use crate::modules::sotd::*;
 struct Handler;
 
+static SCHEDULER_STARTED: OnceLock<()> = OnceLock::new();
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("{} is connected!", ready.user.name);
+
+        if SCHEDULER_STARTED.set(()).is_err() {
+            return;
+        }
 
         debug!("Current time is {}", Local::now().format("%H:%M:%S"));
 
         let config = Config::new();
 
         print_new_links(&ctx, &config).await;
+        update_queue_sticky(&ctx, &config).await.ok();
 
         // run once when the bot starts up
         let should = should_run_sotd(&ctx, &config).await;
         debug!("Should run SOTD? {}", should);
 
-        if should { post_song_of_the_day(&ctx, &config).await; }
+        if should {
+            post_song_of_the_day(&ctx, &config).await;
+        }
 
         // schedules the sotd check for every day at noon
         let sched = JobScheduler::new().await.unwrap();
 
         // "0 * * * * *" "0 12 * * * *"
-        sched.add(
-            Job::new_async_tz("0 1 * * * *", Local, move |_uuid, _l| {
-                let ctx = ctx.clone();
-                let config = config.clone();
-                Box::pin(async move {
-                    info!("running sotd task");
-                    let should = should_run_sotd(&ctx, &config).await;
-                    debug!("Should run SOTD? {}", should);
+        sched
+            .add(
+                Job::new_async_tz("0 1 * * * *", Local, move |_uuid, _l| {
+                    let ctx = ctx.clone();
+                    let config = config.clone();
+                    Box::pin(async move {
+                        info!("running sotd task");
+                        let should = should_run_sotd(&ctx, &config).await;
+                        debug!("Should run SOTD? {}", should);
 
-                    if should { print_new_links(&ctx, &config).await; post_song_of_the_day(&ctx, &config).await; }
+                        if should {
+                            print_new_links(&ctx, &config).await;
+                            post_song_of_the_day(&ctx, &config).await;
+                        }
+                    })
                 })
-            }).unwrap()
-        ).await.unwrap();
+                .unwrap(),
+            )
+            .await
+            .unwrap();
 
         sched.start().await.expect("Couldn't start cron job");
 
@@ -56,7 +73,10 @@ impl EventHandler for Handler {
     async fn voice_state_update(&self, ctx: Context, old: Option<VoiceState>, new: VoiceState) {
         trace!("Voice state update fired: old={:?}, new={:?}", old, new);
 
-        let guild_id = match new.guild_id.or_else(|| old.as_ref().and_then(|o| o.guild_id)) {
+        let guild_id = match new
+            .guild_id
+            .or_else(|| old.as_ref().and_then(|o| o.guild_id))
+        {
             Some(id) => id,
             None => {
                 debug!("No guild id in voice_state_update");
@@ -68,21 +88,23 @@ impl EventHandler for Handler {
         let new_channel = new.channel_id;
 
         // Determine whether the event was caused by a bot (we ignore bot-caused events for decisions)
-        let event_is_bot = new
-            .member
-            .as_ref()
-            .map(|m| m.user.bot)
-            .unwrap_or(false);
+        let event_is_bot = new.member.as_ref().map(|m| m.user.bot).unwrap_or(false);
 
         // ------- HANDLE LEAVE (old_channel -> None or changed) -------
         if let Some(prev_cid) = old_channel {
             // Only respond to humans leaving/joining (ignore bot events).
             if !event_is_bot {
-                trace!("Detected change from old channel {} -> {:?}", prev_cid, new_channel);
+                trace!(
+                    "Detected change from old channel {} -> {:?}",
+                    prev_cid, new_channel
+                );
 
                 // If bot should leave, do that and return.
                 if should_leave(&ctx, guild_id, prev_cid).await {
-                    trace!("Decided to leave channel {} due to occupancy change", prev_cid);
+                    trace!(
+                        "Decided to leave channel {} due to occupancy change",
+                        prev_cid
+                    );
                     leave_channel(&ctx, guild_id).await;
                     return;
                 } else {
@@ -91,11 +113,17 @@ impl EventHandler for Handler {
                     // If we didn't need to leave, maybe we should *join* because humans dropped to 1.
                     // This handles the case: channel went 2->1 (someone left) and bot is not connected.
                     if should_join(&ctx, guild_id, prev_cid).await {
-                        trace!("Re-joining channel {} because occupant count dropped to 1", prev_cid);
+                        trace!(
+                            "Re-joining channel {} because occupant count dropped to 1",
+                            prev_cid
+                        );
                         join_and_play(&ctx, guild_id, prev_cid).await;
                         return;
                     } else {
-                        trace!("After change, not joining channel {} (not eligible)", prev_cid);
+                        trace!(
+                            "After change, not joining channel {} (not eligible)",
+                            prev_cid
+                        );
                     }
                 }
             } else {
@@ -110,7 +138,10 @@ impl EventHandler for Handler {
                 // <-- NEW: Before trying to join, check whether this join event means the bot should leave
                 // (someone else entered the channel, making humans >= 2).
                 if should_leave(&ctx, guild_id, cid).await {
-                    debug!("Decided to leave channel {} due to occupancy change (join event)", cid);
+                    debug!(
+                        "Decided to leave channel {} due to occupancy change (join event)",
+                        cid
+                    );
                     leave_channel(&ctx, guild_id).await;
                     return;
                 }
@@ -129,11 +160,25 @@ impl EventHandler for Handler {
             trace!("No channel_id in new voice state — nothing to do for join");
         }
     }
+
+    async fn message(&self, ctx: Context, msg: Message) {
+        let config = Config::new();
+
+        if msg.channel_id == config.song_request_channel_id
+            && !msg.author.bot
+        {
+            if let Err(err) = update_queue_sticky(&ctx, &config).await {
+                tracing::warn!("Failed to update sticky: {}", err);
+            }
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().with_env_filter(EnvFilter::new("david_discord_bot_rs=debug")).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("david_discord_bot_rs=debug"))
+        .init();
     // Login with a bot token from the environment
     let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
     // Set gateway intents, which decides what events the bot will be notified about
@@ -144,12 +189,11 @@ async fn main() {
         | GatewayIntents::MESSAGE_CONTENT;
 
     // Create a new instance of the Client, logging in as a bot.
-    let mut client =
-        Client::builder(&token, intents)
-            .register_songbird()
-            .event_handler(Handler)
-            .await
-            .expect("Error creating client");
+    let mut client = Client::builder(&token, intents)
+        .register_songbird()
+        .event_handler(Handler)
+        .await
+        .expect("Error creating client");
 
     // Start listening for events by starting a single shard
     if let Err(why) = client.start().await {

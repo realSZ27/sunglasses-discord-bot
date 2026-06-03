@@ -6,3 +6,5 @@ services:
       DISCORD_TOKEN: example
       SOTD_CHANNEL_ID: 23232345345
       SONG_REQUEST_CHANNEL_ID: 34690347859827
+    volumes:
+      - ./config:/app/config
